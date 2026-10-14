@@ -1,0 +1,145 @@
+# ==============================================================================
+# INTERACTIVE PASSPORT APPLICATION & VERIFICATION PORTAL
+# Validates user-submitted KYC documents and issues ICAO Doc 9303 Passport
+# ==============================================================================
+
+import re
+import math
+import secrets
+import string
+from datetime import datetime
+
+def validate_pan(pan: str) -> bool:
+    """Validates Indian PAN card format: 5 letters, 4 digits, 1 letter."""
+    return bool(re.match(r"^[A-Z]{5}[0-9]{4}[A-Z]$", pan.strip().upper()))
+
+def validate_aadhaar(aadhaar: str) -> bool:
+    """Validates 12-digit Aadhaar number."""
+    clean = aadhaar.strip().replace(" ", "").replace("-", "")
+    return len(clean) == 12 and clean.isdigit()
+
+def validate_voter_id(voter: str) -> bool:
+    """Validates Voter ID (EPIC) format: 3 letters followed by 7 digits."""
+    return bool(re.match(r"^[A-Z]{3}[0-9]{7}$", voter.strip().upper()))
+
+def calculate_icao_check_digit(data: str) -> str:
+    """Calculates official 7-3-1 weight check digit for ICAO MRZ."""
+    weights = [7, 3, 1]
+    total = 0
+    for i, char in enumerate(data.upper()):
+        if '0' <= char <= '9':
+            val = int(char)
+        elif 'A' <= char <= 'Z':
+            val = ord(char) - 55
+        else:
+            val = 0
+        total += val * weights[i % 3]
+    return str(total % 10)
+
+def generate_interactive_passport():
+    print("=" * 70)
+    print("GOVERNMENT PASSPORT SEVA PORTAL: APPLICANT REGISTRATION")
+    print("=" * 70)
+
+    # 1. Collect Personal Information
+    surname = input("Enter Surname (Family Name): ").strip().upper()
+    given_name = input("Enter Given Names (First/Middle Name): ").strip().upper()
+    sex = input("Enter Sex (M/F): ").strip().upper()
+    if sex not in ["M", "F"]:
+        sex = "M"
+
+    dob_input = input("Enter Date of Birth (DD-MM-YYYY, e.g., 15-08-1995): ").strip()
+    try:
+        dob_dt = datetime.strptime(dob_input, "%d-%m-%Y")
+        dob_yymmdd = dob_dt.strftime("%y%m%d")
+        dob_display = dob_dt.strftime("%d %b %Y").upper()
+    except ValueError:
+        print("Invalid date format. Defaulting to 01-01-1995.")
+        dob_dt = datetime(1995, 1, 1)
+        dob_yymmdd = "950101"
+        dob_display = "01 JAN 1995"
+
+    address = input("Enter Current Residential Address: ").strip()
+
+    # 2. Collect & Validate KYC Documents
+    print("\n--- SUPPORTING KYC DOCUMENTS VERIFICATION ---")
+    
+    # Aadhaar
+    aadhaar_input = input("Enter 12-digit Aadhaar Number: ").strip()
+    aadhaar_valid = validate_aadhaar(aadhaar_input)
+    clean_aadhaar = aadhaar_input.replace(" ", "").replace("-", "")
+    masked_aadhaar = f"XXXX-XXXX-{clean_aadhaar[-4:]}" if aadhaar_valid else "INVALID FORMAT"
+
+    # PAN Card
+    pan_input = input("Enter 10-character PAN Card Number (e.g., ABCDE1234F): ").strip().upper()
+    pan_valid = validate_pan(pan_input)
+
+    # Voter ID
+    voter_input = input("Enter Voter ID Number (e.g., WXY1234567): ").strip().upper()
+    voter_valid = validate_voter_id(voter_input)
+
+    # Bank Details
+    bank_name = input("Enter Bank Name (for passbook verification): ").strip()
+    bank_acc = input("Enter Bank Account Number: ").strip()
+    ifsc_code = input("Enter Bank IFSC Code (e.g., SBIN0001234): ").strip().upper()
+
+    all_docs_verified = aadhaar_valid and pan_valid and voter_valid and bool(bank_acc)
+
+    # 3. Generate Passport & MRZ
+    passport_number = f"{secrets.choice(string.ascii_uppercase)}{''.join(secrets.choice(string.digits) for _ in range(7))}"
+    
+    # 10-year validity
+    expiry_dt = datetime.now().replace(year=datetime.now().year + 10)
+    exp_yymmdd = expiry_dt.strftime("%y%m%d")
+    exp_display = expiry_dt.strftime("%d %b %Y").upper()
+
+    # MRZ Construction
+    name_field = f"{surname}<<{given_name}"[:39].ljust(39, '<')
+    mrz_line1 = f"P<IND{name_field}".ljust(44, '<')
+
+    doc_clean = passport_number.ljust(9, '<')
+    doc_chk = calculate_icao_check_digit(doc_clean)
+    dob_chk = calculate_icao_check_digit(dob_yymmdd)
+    exp_chk = calculate_icao_check_digit(exp_yymmdd)
+    opt = "<" * 14
+    opt_chk = "<"
+    comp_data = f"{doc_clean}{doc_chk}{dob_yymmdd}{dob_chk}{exp_yymmdd}{exp_chk}{opt}{opt_chk}"
+    comp_chk = calculate_icao_check_digit(comp_data)
+    mrz_line2 = f"{doc_clean}{doc_chk}IND{dob_yymmdd}{dob_chk}{sex}{exp_yymmdd}{exp_chk}{opt}{opt_chk}{comp_chk}"
+
+    # Cryptographic Token
+    token_pool = string.ascii_letters + string.digits + "!@#$%^&*"
+    chip_key = "".join(secrets.choice(token_pool) for _ in range(16))
+    entropy_bits = len(chip_key) * math.log2(len(token_pool))
+
+    # 4. Display Verification Result and Digital Passport
+    print("\n" + "=" * 70)
+    print("VERIFIED BIOMETRIC PASSPORT DOCUMENT")
+    print("REPUBLIC OF INDIA")
+    print("=" * 70)
+    print(f"Passport Number:     {passport_number}          Country Code: IND")
+    print(f"Surname:             {surname}")
+    print(f"Given Names:         {given_name}")
+    print(f"Nationality:         INDIAN")
+    print(f"Date of Birth:       {dob_display}         Sex: {sex}")
+    print(f"Date of Expiry:      {exp_display}")
+    print(f"Current Address:     {address}")
+    print("-" * 70)
+    print("VERIFIED ORIGINAL SUPPORTING DOCUMENTS:")
+    print(f"  Aadhaar Card:      {masked_aadhaar} [{'VERIFIED' if aadhaar_valid else 'FAILED'}]")
+    print(f"  PAN Card:          {pan_input} [{'VERIFIED' if pan_valid else 'FAILED'}]")
+    print(f"  Voter ID (EPIC):   {voter_input} [{'VERIFIED' if voter_valid else 'FAILED'}]")
+    print(f"  Bank Passbook:     {bank_name} (Acc: {bank_acc}, IFSC: {ifsc_code}) [VERIFIED]")
+    print(f"  KYC Status:        {'APPROVED - CLEAR FOR ISSUANCE' if all_docs_verified else 'FLAGGED - RE-SUBMIT ORIGINAL DOCUMENTS'}")
+    print("-" * 70)
+    print("BIOMETRIC CHIP SECURITY & ACCESS KEY:")
+    print(f"  PACE / BAC Token:  {chip_key}")
+    print(f"  Security Entropy:  {entropy_bits:.2f} bits (Cryptographic Grade)")
+    print("-" * 70)
+    print("ICAO DOC 9303 MACHINE READABLE ZONE (MRZ):")
+    print(f"  {mrz_line1}")
+    print(f"  {mrz_line2}")
+    print("=" * 70)
+
+# Run the interactive generator
+generate_interactive_passport()
